@@ -2,7 +2,7 @@
 <?php
 
 if (!isset($argv[1])) {
-	echo "No bill-config set.\n";
+	fprintf(STDERR, "No bill-config set.\n");
 	exit(1);
 }
 
@@ -12,7 +12,7 @@ if (!isset($argv[1])) {
  * exit immediately. */
 $config = json_decode(file_get_contents($argv[1]), true);
 if (!isset($config)) {
-	printf("Content of '%s' no valid JSON.\n", $argv[1]);
+	fprintf(STDERR, "Content of '%s' no valid JSON.\n", $argv[1]);
 	exit(1);
 }
 
@@ -22,10 +22,10 @@ $required_config = array("template", "invoice", "date", "customer", "items");
 
 $diff = array_diff($required_config, array_keys($config));
 if (!empty($diff)) {
-	echo "One or more keys are missing in your bill:\n";
+	fprintf(STDERR, "One or more keys are missing in your bill:\n");
 
 	foreach($diff as $key)
-		printf(" - %s\n", $key);
+		fprintf(STDERR, " - %s\n", $key);
 
 	exit(1);
 }
@@ -41,7 +41,7 @@ for ($i = 0; ($i < 10) && !is_dir($template_path); $i++)
 	$template_path = "../".$template_path;
 
 if (!is_dir($template_path)) {
-	echo "Template path could not be found.\n";
+	fprintf(STDERR, "Template path could not be found.\n");
 	exit(1);
 }
 
@@ -50,7 +50,7 @@ if (!is_dir($template_path)) {
  * and PHP will exit immediately. */
 $template = $template_path."/".$config['template'];
 if (!file_exists($template)) {
-	printf("Template '%s' could not be found in template dir '%s'.\n",
+	fprintf(STDERR, "Template '%s' could not be found in template dir '%s'.\n",
 		$config['template'], $template_path);
 	exit(1);
 }
