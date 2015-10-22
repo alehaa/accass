@@ -7,6 +7,22 @@ if (!isset($argv[1])) {
 }
 
 
+/* Search for root directory.
+ * A maximum of 10 upper directories will be searched, it does not make sense in
+ * a higher range and may cause endless loops otherwise. The root directory must
+ * contain a directory named .accass, which will contain the template and other
+ * directories.
+ */
+$accass_dir = ".accass";
+for ($i = 0; ($i < 10) && !is_dir($accass_dir); $i++)
+	$accass_dir = "../".$accass_dir;
+
+if (!is_dir($accass_dir)) {
+	fprintf(STDERR, "Accass configuration directory could not be found.\n");
+	exit(1);
+}
+
+
 /* Read JSON config.
  * This function will either success, or a warning will be printed and PHP will
  * exit immediately. */
@@ -18,12 +34,41 @@ if (!isset($config)) {
 
 /* Check for required entries in $config. If a required entry is not in $config,
  * an error message will be printed and PHP will exit immediately. */
-$required_config = array("template", "invoice", "date", "customer", "items");
-
-$diff = array_diff($required_config, array_keys($config));
+$required_entrys = array("template", "invoice", "date", "customer", "items");
+$diff = array_diff($required_entrys, array_keys($config));
 if (!empty($diff)) {
-	fprintf(STDERR, "One or more keys are missing in your bill:\n");
+	fprintf(STDERR, "Missing fields in your bill:\n");
+	foreach($diff as $key)
+		fprintf(STDERR, " - %s\n", $key);
 
+	exit(1);
+}
+
+$required_entrys = array("quantity", "unit", "name", "price");
+foreach ($config['items'] as $key => $item) {
+	$diff = array_diff($required_entrys, array_keys($item));
+	if (empty($diff))
+		continue;
+
+	fprintf(STDERR, "Item %d has missing fields:\n", $key + 1);
+	foreach($diff as $key)
+		fprintf(STDERR, " - %s\n", $key);
+
+	exit(1);
+}
+
+/* Fillout customer data with data from config file, if not set directly in
+ * $config. Check if all required fields are set. If a required entry is not in
+ * $config, an error message will be printed and PHP will exit immediately. */
+if (!is_array($config['customer'])) {
+	$config['customer'] = json_decode(file_get_contents(
+		$accass_dir."/customers/".$config['customer'].".json"), true);
+}
+
+$required_entrys = array("name", "street", "city");
+$diff = array_diff($required_entrys, array_keys($config['customer']));
+if (!empty($diff)) {
+	fprintf(STDERR, "Customer has missing fields:\n");
 	foreach($diff as $key)
 		fprintf(STDERR, " - %s\n", $key);
 
@@ -31,27 +76,12 @@ if (!empty($diff)) {
 }
 
 
-/* Search for template directory.
- * A maximum of 10 upper directories will be searched, it does not make sense in
- * a higher range and may cause endless loops otherwise. If no template
- * directory is dound, an error message will be printed and PHP will exit
- * immediately. */
-$template_path = "templates";
-for ($i = 0; ($i < 10) && !is_dir($template_path); $i++)
-	$template_path = "../".$template_path;
-
-if (!is_dir($template_path)) {
-	fprintf(STDERR, "Template path could not be found.\n");
-	exit(1);
-}
-
 /* Look if template file is present in template directory and include it.
  * If the required template could not be found, an error message will be printed
  * and PHP will exit immediately. */
-$template = $template_path."/".$config['template'];
+$template = $accass_dir."/templates/".$config['template'];
 if (!file_exists($template)) {
-	fprintf(STDERR, "Template '%s' could not be found in template dir '%s'.\n",
-		$config['template'], $template_path);
+	fprintf(STDERR, "Template '%s' could not be found.\n", $config['template']);
 	exit(1);
 }
 
