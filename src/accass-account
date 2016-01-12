@@ -1,0 +1,239 @@
+#!/usr/bin/php
+<?php
+
+// Set timezone (required for some functions).
+date_default_timezone_set("Europe/Berlin");
+
+
+/* Helper function to search for all files matching pattern in this and
+ * recursive directories. */
+if ( ! function_exists('glob_recursive')) {
+	// Does not support flag GLOB_BRACE
+	function glob_recursive($pattern, $flags = 0)
+	{
+		$files = glob($pattern, $flags);
+		foreach (glob(dirname($pattern).'/*', GLOB_ONLYDIR|GLOB_NOSORT) as $dir)
+			$files = array_merge($files,
+			           glob_recursive($dir.'/'.basename($pattern), $flags));
+
+		return $files;
+	}
+}
+
+
+/* Search for root directory.
+ *
+ * A maximum of 10 upper directories will be searched, it does not make sense in
+ * a higher range and may cause endless loops otherwise. The root directory must
+ * contain a directory named .accass, which will contain the template and other
+ * directories.
+ */
+$accass_dir = ".accass";
+for ($i = 0; ($i < 10) && !is_dir($accass_dir); $i++)
+	$accass_dir = "../".$accass_dir;
+
+if (!is_dir($accass_dir)) {
+	fprintf(STDERR, "Accass configuration directory could not be found.\n");
+	exit(1);
+}
+
+
+/* Search for all JSON files in this and recursive directories and process these
+ * files directly. Found data will be stored in $afa or $invoices. */
+$data_afa = array();
+$data_invoices = array();
+
+foreach (glob_recursive("*.json") as $filename) {
+	/* try to parse file as JSON. If it can't be parsed, a warning will be
+	 * printed and the file ignored. */
+	$data = json_decode(file_get_contents($filename), true);
+	if (!isset($data)) {
+		fprintf(STDERR, "Could not parse '%s' - file will be ignored.\n",
+		        $filename);
+		exit(1);
+	}
+
+	if (isset($data["afa"])) {
+		$data_afa[] = $data;
+		continue;
+	}
+
+	$date = DateTime::createFromFormat('d.m.Y', $data["date"])->format("Y-m-d");
+	$data_invoices[$date][] = $data;
+}
+
+/* Sort array $invoices by key to order all invoices by date. */
+ksort($data_invoices);
+
+
+/* Process AFA data */
+$afa = array();
+foreach ($data_afa as $item) {
+	if (isset($item["usage_percent"]))
+		$temp = array(
+			"description" => $item["description"]." (".($item["usage_percent"] * 100)."% gewerb. Nutzung)",
+			"usage_percent" => $item["usage_percent"],
+			"total" => round($item["total"] * $item["usage_percent"], 2),
+			"lifetime" => $item["lifetime"]
+		);
+	else {
+		$temp = array(
+			"description" => $item["description"],
+			"total" => $item["total"],
+			"lifetime" => $item["lifetime"]
+		);
+		$item["usage_percent"] = 1;
+	}
+
+	$n = (($item["total"] * $item["usage_percent"]) / $item["lifetime"]);
+
+	$temp["value_begin"] = round(($item["total"] * $item["usage_percent"])
+	                        - $n * $item["lifetime_elapsed"], 2);
+	$temp["value_end"] = round(($item["total"] * $item["usage_percent"])
+	                      - $n * ($item["lifetime_elapsed"] +
+	                      $item["lifetime_used"]), 2);
+	$temp["afa"] = $temp["value_begin"] - $temp["value_end"];
+
+	$afa[] = $temp;
+}
+
+
+/* Process Invoices */
+$invoices = array();
+foreach ($data_invoices as $day => $invoice_day)
+	foreach ($invoice_day as $invoice) {
+		$temp = array();
+
+		$temp["date"] = $day;
+		$temp["in"] = 0;
+		$temp["out"] = 0;
+		$temp["travel_costs"] = 0;
+
+		if (isset($invoice["bill"])) {
+			$temp["description"] =
+				$invoice["description"].", Nr.".$invoice["invoice"];
+
+			if ($invoice["total"] > 0)
+				$temp["out"] = $invoice["total"];
+			else
+				$temp["in"] = -1 * $invoice["total"];
+
+		} else {
+			$temp["description"] = "Rechnung ".$invoice["invoice"];
+
+			foreach ($invoice["items"] as $item)
+				$temp["in"] += $item["quantity"] * $item["price"];
+
+			/* Fillout customer data with data from config file, if not set
+			 * directly in $invoice. Check if all required fields are set. */
+			if (!is_array($invoice['customer']))
+				$invoice['customer'] = json_decode(file_get_contents(
+					$accass_dir."/customers/".$invoice['customer'].".json"), true);
+
+			if (isset($invoice["customer"]["distance"]))
+				$temp["travel_costs"] = $invoice["customer"]["distance"] * 0.3;
+		}
+
+		$invoices[] = $temp;
+	}
+
+
+/* Output data
+ *
+ * If no argument is set, the data will be output as plain text on stdout.
+ * Otherwise a template named $argv[1] will be searched and is responsible for
+ * the data output.
+ */
+if (!isset($argv[1])) {
+	printf("Umsatzabrechnung\n%s%s\n\n", "--------------------------------",
+		"------------------------------------------------");
+
+	if (!empty($afa))
+		printf("Afa:\n\n");
+	foreach ($afa as $key => $item) {
+		printf("%d) %s\n%62s: %8s\n%62s: %8s\n%62s: %8s\n%70s: %8s\n\n",
+			$key + 1, $item["description"],
+			"Gesamtwert", number_format($item["total"], 2, ',', '.'),
+			"Wert zu Begin des Veranlagungszeitraumes",
+				number_format($item["value_begin"], 2, ',', '.'),
+			"Wert am Ende des Veranlagungszeitraumes",
+				number_format($item["value_end"], 2, ',', '.'),
+			"Anrechenbarer Wert",
+				number_format($item["afa"], 2, ',', '.')
+		);
+
+		$afa_ges["total"] += $item["total"];
+		$afa_ges["value_begin"] += $item["value_begin"];
+		$afa_ges["value_end"] += $item["value_end"];
+		$afa_ges["afa"] += $item["afa"];
+	}
+
+
+	if (!empty($invoices))
+		printf("Umsatz-Auflistung:\n\n");
+
+	$month_count = 0;
+	$month_total = 0;
+
+	$general_in = 0;
+	$general_out = 0;
+	$general_travel_costs = 0;
+
+	$init = true;
+	foreach ($invoices as $invoice) {
+		$this_month = substr($invoice["date"], 5, 2);
+		if ($month_count != $this_month) {
+			if (!$init) {
+				printf("%80s\n\n%80s\n", "--------",
+					number_format($month_total, 2, ',', '.'));
+
+				printf("  --------\n");
+			}
+			$init = false;
+
+			printf("%s\n\n",
+				DateTime::createFromFormat('!m', $this_month)->format('F'));
+			$month_count = $this_month;
+
+			// print header
+			printf("%-40s%10s%10s%10s%10s\n%s%s\n\n", "Beschreibung",
+				"Einnahmen", "Ausgaben", "Fahrtk.", "Gesamt",
+				"--------------------------------------------------------",
+				"------------------------");
+		}
+
+		printf("%-40s%10s%10s%10s%10s\n\n",
+			$invoice["description"],
+			($invoice["in"]) ? number_format($invoice["in"], 2, ',', '.') : "",
+			($invoice["out"]) ? number_format($invoice["out"], 2, ',', '.') : "",
+			($invoice["travel_costs"]) ? number_format($invoice["travel_costs"], 2, ',', '.') : "",
+
+			number_format($invoice["in"] - $invoice["out"] -
+				$invoice["travel_costs"], 2, ',', '.')
+		);
+
+		$month_total += $invoice["in"] - $invoice["out"] -
+			$invoice["travel_costs"];
+
+		$general_in += $invoice["in"];
+		$general_out += $invoice["out"];
+		$general_travel_costs += $invoice["travel_costs"];
+	}
+
+	printf("%80s\n\n%80s\n", "--------",
+		number_format($month_total, 2, ',', '.'));
+
+	printf("Gesamt\n%s%s\n\n", "--------------------------------",
+		"------------------------------------------------");
+
+	printf("%68s: %10s\n%68s: %10s\n%68s: %10s\n%68s: %10s\n%68s  %10s\n%68s: %10s\n",
+		"Summe der Einnahmen", number_format($general_in, 2, ',', '.'),
+		"Summe der Ausgaben", number_format($general_out, 2, ',', '.'),
+		"Summe der Fahrtkosten",
+		number_format($general_travel_costs, 2, ',', '.'),
+		"Afa", number_format($afa_ges["afa"], 2, ',', '.'),
+		"", "--------", "Gesamt",
+		number_format($general_in - $general_out - $general_travel_costs -
+			$afa_ges["afa"], 2, ',', '.')
+	);
+}

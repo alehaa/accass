@@ -63,6 +63,10 @@ foreach ($config['items'] as $key => $item) {
 if (!is_array($config['customer'])) {
 	$config['customer'] = json_decode(file_get_contents(
 		$accass_dir."/customers/".$config['customer'].".json"), true);
+
+	// if JSON parse failed, init as array
+	if (!is_array($config['customer']))
+		$config['customer'] = array();
 }
 
 $required_entrys = array("name", "street", "city");
