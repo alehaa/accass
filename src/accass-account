@@ -150,6 +150,12 @@ if (!isset($argv[1])) {
 
 	if (!empty($afa))
 		printf("Afa:\n\n");
+
+	$afa_ges["total"] = 0;
+	$afa_ges["value_begin"] = 0;
+	$afa_ges["value_end"] = 0;
+	$afa_ges["afa"] = 0;
+
 	foreach ($afa as $key => $item) {
 		printf("%d) %s\n%62s: %8s\n%62s: %8s\n%62s: %8s\n%70s: %8s\n\n",
 			$key + 1, $item["description"],
