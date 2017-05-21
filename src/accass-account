@@ -136,6 +136,9 @@ foreach ($data_invoices as $day => $invoice_day)
 				$invoice['customer'] = json_decode(file_get_contents(
 					$accass_dir."/customers/".$invoice['customer'].".json"), true);
 
+			if (isset($invoice['special_costs']))
+				$temp['special_costs'] = $invoice['special_costs'];
+
 			if (isset($invoice['distance']))
 				$invoice["customer"]["distance"] = $invoice['distance'];
 			if (isset($invoice["customer"]["distance"]))
