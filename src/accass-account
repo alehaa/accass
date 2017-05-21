@@ -213,6 +213,8 @@ if (!isset($argv[1])) {
 				"Einnahmen", "Ausgaben", "Sonderk.", "Gesamt",
 				"--------------------------------------------------------",
 				"------------------------");
+
+				$month_total = 0;
 		}
 
 		$special_costs = array_sum($invoice['special_costs']);
