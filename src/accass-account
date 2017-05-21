@@ -107,7 +107,7 @@ foreach ($data_invoices as $day => $invoice_day)
 		$temp["date"] = $day;
 		$temp["in"] = 0;
 		$temp["out"] = 0;
-		$temp["travel_costs"] = 0;
+		$temp['special_costs'] = array();
 
 		if (isset($invoice["bill"])) {
 			$temp["description"] =
@@ -117,6 +117,11 @@ foreach ($data_invoices as $day => $invoice_day)
 				$temp["out"] = $invoice["total"];
 			else
 				$temp["in"] = -1 * $invoice["total"];
+
+			if (isset($invoice['bill_category'])) {
+				$temp['special_costs'][$invoice['bill_category']] = $temp['out'];
+				$temp['out'] = 0;
+			}
 
 		} else {
 			$temp["description"] = "Rechnung ".$invoice["invoice"];
@@ -130,8 +135,10 @@ foreach ($data_invoices as $day => $invoice_day)
 				$invoice['customer'] = json_decode(file_get_contents(
 					$accass_dir."/customers/".$invoice['customer'].".json"), true);
 
+			if (isset($invoice['distance']))
+				$invoice["customer"]["distance"] = $invoice['distance'];
 			if (isset($invoice["customer"]["distance"]))
-				$temp["travel_costs"] = $invoice["customer"]["distance"] * 0.3;
+				$temp['special_costs']["travel_costs"] = $invoice["customer"]["distance"] * 0.3;
 		}
 
 		$invoices[] = $temp;
@@ -183,7 +190,7 @@ if (!isset($argv[1])) {
 
 	$general_in = 0;
 	$general_out = 0;
-	$general_travel_costs = 0;
+	$general_special_costs = array();
 
 	$init = true;
 	foreach ($invoices as $invoice) {
@@ -203,27 +210,31 @@ if (!isset($argv[1])) {
 
 			// print header
 			printf("%-40s%10s%10s%10s%10s\n%s%s\n\n", "Beschreibung",
-				"Einnahmen", "Ausgaben", "Fahrtk.", "Gesamt",
+				"Einnahmen", "Ausgaben", "Sonderk.", "Gesamt",
 				"--------------------------------------------------------",
 				"------------------------");
 		}
 
+		$special_costs = array_sum($invoice['special_costs']);
 		printf("%-40s%10s%10s%10s%10s\n\n",
 			$invoice["description"],
 			($invoice["in"]) ? number_format($invoice["in"], 2, ',', '.') : "",
 			($invoice["out"]) ? number_format($invoice["out"], 2, ',', '.') : "",
-			($invoice["travel_costs"]) ? number_format($invoice["travel_costs"], 2, ',', '.') : "",
+			($special_costs != 0) ? number_format($special_costs, 2, ',', '.') : "",
 
-			number_format($invoice["in"] - $invoice["out"] -
-				$invoice["travel_costs"], 2, ',', '.')
+			number_format($invoice["in"] - $invoice["out"] - $special_costs, 2, ',', '.')
 		);
 
-		$month_total += $invoice["in"] - $invoice["out"] -
-			$invoice["travel_costs"];
+		$month_total += $invoice["in"] - $invoice["out"] - $special_costs;
 
 		$general_in += $invoice["in"];
 		$general_out += $invoice["out"];
-		$general_travel_costs += $invoice["travel_costs"];
+
+		foreach ($invoice['special_costs'] as $key => $value)
+			if (isset($general_special_costs[$key]))
+				$general_special_costs[$key] += $value;
+			else
+				$general_special_costs[$key] = $value;
 	}
 
 	printf("%80s\n\n%80s\n", "--------",
@@ -232,14 +243,20 @@ if (!isset($argv[1])) {
 	printf("Gesamt\n%s%s\n\n", "--------------------------------",
 		"------------------------------------------------");
 
-	printf("%68s: %10s\n%68s: %10s\n%68s: %10s\n%68s: %10s\n%68s  %10s\n%68s: %10s\n",
-		"Summe der Einnahmen", number_format($general_in, 2, ',', '.'),
-		"Summe der Ausgaben", number_format($general_out, 2, ',', '.'),
-		"Summe der Fahrtkosten",
-		number_format($general_travel_costs, 2, ',', '.'),
-		"Afa", number_format($afa_ges["afa"], 2, ',', '.'),
-		"", "--------", "Gesamt",
-		number_format($general_in - $general_out - $general_travel_costs -
-			$afa_ges["afa"], 2, ',', '.')
-	);
+	printf("%68s: %10s\n%68s: %10s\n",
+	       "Summe der Einnahmen", number_format($general_in, 2, ',', '.'),
+	       "Summe der Ausgaben", number_format($general_out, 2, ',', '.'));
+	$summe = $general_in - $general_out;
+
+	printf("%68s:\n", "Sonderkosten");
+	foreach ($general_special_costs as $key => $value) {
+		printf("%68s: %10s\n", $key, number_format($value, 2, ',', '.'));
+		$summe -= $value;
+	}
+
+	printf("%68s: %10s\n", "Afa", number_format($afa_ges['afa'], 2, ',', '.'));
+	$summe -= $afa_ges['afa'];
+
+	printf("%80s\n%68s: %10s\n", "--------", "Gesamt",
+	       number_format($summe, 2, ',', '.'));
 }
