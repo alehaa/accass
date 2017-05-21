@@ -119,7 +119,8 @@ foreach ($data_invoices as $day => $invoice_day)
 				$temp["in"] = -1 * $invoice["total"];
 
 			if (isset($invoice['bill_category'])) {
-				$temp['special_costs'][$invoice['bill_category']] = $temp['out'];
+				$temp['special_costs'][$invoice['bill_category']] = $invoice['total'];
+				$temp['in'] = 0;
 				$temp['out'] = 0;
 			}
 
