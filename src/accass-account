@@ -127,8 +127,10 @@ foreach ($data_invoices as $day => $invoice_day)
 		} else {
 			$temp["description"] = "Rechnung ".$invoice["invoice"];
 
+			$total = 0;
 			foreach ($invoice["items"] as $item)
-				$temp["in"] += $item["quantity"] * $item["price"];
+				$total += $item["quantity"] * $item["price"];
+			$temp[($total >= 0) ? 'in' : 'out'] = ($total >= 0) ? $total : -1 * $total;
 
 			/* Fillout customer data with data from config file, if not set
 			 * directly in $invoice. Check if all required fields are set. */
